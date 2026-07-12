@@ -36,12 +36,16 @@ The app requires Supabase environment variables. Without them, login and registr
 ## Vercel Deployment
 
 1. Import this repository into Vercel.
-2. Set the environment variables:
+2. Open Project Settings > Environment Variables.
+3. Set these variables for Production, Preview, and Development:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-3. Use the default Vite build settings:
+4. Use the default Vite build settings:
    - Build command: `npm run build`
    - Output directory: `dist`
+5. Redeploy the project after saving environment variables.
+
+`.env.local` is only for your computer and is intentionally not committed to GitHub. Vercel will show "Supabase is not configured" until the two `VITE_` variables are added in Vercel and the site is redeployed.
 
 ## Notes
 
