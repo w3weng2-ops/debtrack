@@ -175,7 +175,7 @@ export function LoanDetailsPage() {
           </Button>
           <Button variant="secondary" onClick={() => void handleComplete()} disabled={loan.status === "completed"}>
             <CheckCircle2 className="h-4 w-4" />
-            Mark Completed
+            Mark Paid
           </Button>
           <Button variant="danger" onClick={() => void handleDelete()}>
             <Trash2 className="h-4 w-4" />
@@ -216,10 +216,13 @@ export function LoanDetailsPage() {
           <DetailItem label="Loan ID" value={loan.id} />
           <DetailItem label="Lender" value={loan.lender} />
           <DetailItem label="Loan Name" value={loan.loanName} />
-          <DetailItem label="Loan Type" value={loan.loanType} />
           <DetailItem label="Original Amount" value={formatCurrency(loan.originalAmount)} />
           <DetailItem label="Interest Rate" value={`${loan.interestRate.toFixed(2)}%`} />
           <DetailItem label="Estimated Interest Amount" value={formatCurrency(loan.estimatedInterestAmount)} />
+          <DetailItem
+            label="Est. Interest Rate"
+            value={`${(loan.originalAmount > 0 ? (loan.estimatedInterestAmount / loan.originalAmount) * 100 : loan.interestRate).toFixed(2)}%`}
+          />
           <DetailItem label="Total Loan Amount" value={formatCurrency(loan.totalLoanAmount)} />
           <DetailItem label="Installments" value={loan.installments} />
           <DetailItem label="Monthly Payment" value={formatCurrency(loan.monthlyPayment)} />
@@ -234,8 +237,6 @@ export function LoanDetailsPage() {
             label="Days Remaining"
             value={loan.daysRemaining < 0 ? `${Math.abs(loan.daysRemaining)} days overdue` : `${loan.daysRemaining} days`}
           />
-          <DetailItem label="Payment Frequency" value={loan.paymentFrequency} />
-          <DetailItem label="Grace Period" value={`${loan.gracePeriod} days`} />
           <DetailItem label="Created At" value={formatDateTime(loan.createdAt)} />
           <DetailItem label="Updated At" value={formatDateTime(loan.updatedAt)} />
         </div>
@@ -255,43 +256,54 @@ export function LoanDetailsPage() {
             <thead className="table-head">
               <tr>
                 <th className="px-4 py-3">Installment No.</th>
+                <th className="px-4 py-3">Loan ID</th>
+                <th className="px-4 py-3">Lender</th>
                 <th className="px-4 py-3">Due Date</th>
-                <th className="px-4 py-3">Expected Amount</th>
-                <th className="px-4 py-3">Principal</th>
-                <th className="px-4 py-3">Interest</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Paid Date</th>
-                <th className="px-4 py-3">Remaining Balance</th>
+                <th className="px-4 py-3">Due Amount</th>
+                <th className="px-4 py-3">Paid Amount</th>
+                <th className="px-4 py-3">Payment Date</th>
+                <th className="px-4 py-3">Remaining</th>
+                <th className="px-4 py-3">Paid?</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {schedule.map((installment) => (
-                <tr key={installment.id}>
-                  <td className="table-cell font-semibold">{installment.installmentNo}</td>
-                  <td className="table-cell">{formatDate(installment.dueDate)}</td>
-                  <td className="table-cell font-semibold">{formatCurrency(installment.expectedAmount)}</td>
-                  <td className="table-cell">{formatCurrency(installment.principal)}</td>
-                  <td className="table-cell">{formatCurrency(installment.interest)}</td>
-                  <td className="table-cell">
-                    <StatusBadge status={installment.status} />
-                  </td>
-                  <td className="table-cell">{formatDate(installment.paidDate)}</td>
-                  <td className="table-cell">{formatCurrency(installment.remainingBalance)}</td>
-                  <td className="table-cell">
-                    {installment.status === "paid" ? (
-                      <span className="text-xs font-semibold text-slate-400">Recorded</span>
-                    ) : (
-                      <button
-                        className="font-semibold text-blue-600 hover:text-blue-700"
-                        onClick={() => setPaymentOpen(true)}
-                      >
-                        Pay
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {schedule.map((installment) => {
+                const paidAmount =
+                  installment.status === "paid"
+                    ? installment.expectedAmount
+                    : installment.status === "partial"
+                      ? Math.max(0, installment.expectedAmount - installment.remainingBalance)
+                      : 0;
+
+                return (
+                  <tr key={installment.id}>
+                    <td className="table-cell font-semibold">{installment.installmentNo}</td>
+                    <td className="table-cell">{loan.id}</td>
+                    <td className="table-cell">{loan.lender}</td>
+                    <td className="table-cell">{formatDate(installment.dueDate)}</td>
+                    <td className="table-cell font-semibold">{formatCurrency(installment.expectedAmount)}</td>
+                    <td className="table-cell">{formatCurrency(paidAmount)}</td>
+                    <td className="table-cell">{formatDate(installment.paidDate)}</td>
+                    <td className="table-cell">{formatCurrency(Math.min(installment.remainingBalance, installment.expectedAmount))}</td>
+                    <td className="table-cell">
+                      <StatusBadge status={installment.status} />
+                    </td>
+                    <td className="table-cell">
+                      {installment.status === "paid" ? (
+                        <span className="text-xs font-semibold text-slate-400">Recorded</span>
+                      ) : (
+                        <button
+                          className="font-semibold text-blue-600 hover:text-blue-700"
+                          onClick={() => setPaymentOpen(true)}
+                        >
+                          Pay
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -308,13 +320,10 @@ export function LoanDetailsPage() {
               <thead className="table-head">
                 <tr>
                   <th className="px-4 py-3">Payment Date</th>
+                  <th className="px-4 py-3">Lender</th>
+                  <th className="px-4 py-3">Loan ID</th>
                   <th className="px-4 py-3">Amount Paid</th>
-                  <th className="px-4 py-3">Principal Paid</th>
-                  <th className="px-4 py-3">Interest Paid</th>
                   <th className="px-4 py-3">Remaining Balance</th>
-                  <th className="px-4 py-3">Reference Number</th>
-                  <th className="px-4 py-3">Payment Method</th>
-                  <th className="px-4 py-3">Recorded By</th>
                   <th className="px-4 py-3">Notes</th>
                 </tr>
               </thead>
@@ -322,14 +331,11 @@ export function LoanDetailsPage() {
                 {history.map((payment) => (
                   <tr key={payment.id}>
                     <td className="table-cell">{formatDate(payment.paymentDate)}</td>
+                    <td className="table-cell">{loan.lender}</td>
+                    <td className="table-cell font-semibold">{loan.id}</td>
                     <td className="table-cell font-semibold">{formatCurrency(payment.amountPaid)}</td>
-                    <td className="table-cell">{formatCurrency(payment.principalPaid)}</td>
-                    <td className="table-cell">{formatCurrency(payment.interestPaid)}</td>
                     <td className="table-cell">{formatCurrency(payment.remainingBalance)}</td>
-                    <td className="table-cell">{payment.referenceNumber || "None"}</td>
-                    <td className="table-cell">{payment.paymentMethod}</td>
-                    <td className="table-cell">{payment.recordedBy}</td>
-                    <td className="table-cell max-w-64 truncate">{payment.notes || "No notes"}</td>
+                    <td className="table-cell max-w-64 truncate">{payment.notes || "Auto-created"}</td>
                   </tr>
                 ))}
               </tbody>

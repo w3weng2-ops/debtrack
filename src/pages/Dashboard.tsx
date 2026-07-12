@@ -15,9 +15,11 @@ import {
   getDashboardMetrics,
   getDebtByLender,
   getDueSoonRows,
+  getMonthlyCalendarRows,
   getNotifications,
+  getPaymentProgress,
 } from "../lib/debtCalculations";
-import { formatCurrency, formatDate, formatDateTime, formatPercent } from "../lib/format";
+import { formatCurrency, formatDate, formatDateTime, formatMonth, formatPercent } from "../lib/format";
 import { StatCard } from "../components/StatCard";
 import { StatusBadge } from "../components/StatusBadge";
 import { ProgressBar } from "../components/ProgressBar";
@@ -25,7 +27,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { EmptyState } from "../components/EmptyState";
 
 export function Dashboard() {
-  const { loans, installments, activities, loading } = useDebt();
+  const { loans, installments, payments, activities, loading } = useDebt();
 
   const metrics = useMemo(
     () => getDashboardMetrics(loans, installments, activities),
@@ -34,6 +36,16 @@ export function Dashboard() {
   const dueSoon = useMemo(() => getDueSoonRows(loans, installments, 15), [installments, loans]);
   const lenderSummary = useMemo(() => getDebtByLender(loans), [loans]);
   const notifications = useMemo(() => getNotifications(loans, installments).slice(0, 5), [installments, loans]);
+  const paymentProgress = useMemo(() => getPaymentProgress(loans, installments), [installments, loans]);
+  const monthlyCalendar = useMemo(() => getMonthlyCalendarRows(installments, payments, 12), [installments, payments]);
+  const recentPayments = useMemo(() => {
+    const loanMap = new Map(loans.map((loan) => [loan.id, loan]));
+
+    return [...payments]
+      .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime())
+      .slice(0, 8)
+      .map((payment) => ({ payment, loan: loanMap.get(payment.loanId) }));
+  }, [loans, payments]);
 
   if (loading) return <PageSkeleton />;
 
@@ -41,9 +53,11 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <h1 className="text-2xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-3xl">Dashboard</h1>
+          <h1 className="text-2xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-3xl">
+            Personal Debt Manager
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Track repayment progress, upcoming obligations, lender exposure, and recent account movement.
+            Debt control center for active loans, due dates, lender exposure, payment progress, and recent movement.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -77,11 +91,12 @@ export function Dashboard() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Active Loans" value={String(metrics.activeLoans)} helper="Excludes completed loans" icon={WalletCards} />
         <StatCard label="Remaining Debt" value={formatCurrency(metrics.remainingDebt)} icon={DollarSign} tone="red" />
         <StatCard label="Due This Month" value={formatCurrency(metrics.dueThisMonth)} icon={CalendarClock} tone="amber" />
         <StatCard label="Overall Progress" value={formatPercent(metrics.overallProgress)} helper="Paid across all loans" icon={TrendingUp} tone="green" />
+        <StatCard label="Overdue Amount" value={formatCurrency(metrics.overdueAmount)} icon={AlertTriangle} tone="red" />
         <StatCard label="Due Within 15 Days" value={formatCurrency(metrics.dueWithin15)} icon={Clock3} tone="amber" />
         <StatCard label="Due Within 30 Days" value={formatCurrency(metrics.dueWithin30)} icon={Clock3} tone="blue" />
         <StatCard label="Last Updated" value={formatDate(metrics.lastUpdated)} helper={formatDateTime(metrics.lastUpdated)} icon={RefreshCw} tone="slate" />
@@ -154,7 +169,7 @@ export function Dashboard() {
         )}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="card overflow-hidden">
           <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
             <h2 className="text-lg font-bold text-slate-950 dark:text-white">Debt by Lender</h2>
@@ -198,19 +213,107 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+            <h2 className="text-lg font-bold text-slate-950 dark:text-white">Monthly Calendar</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Month-by-month payment load, paid totals, remaining obligations, and due account count.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+              <thead className="table-head">
+                <tr>
+                  <th className="px-4 py-3">Month</th>
+                  <th className="px-4 py-3">Total Due</th>
+                  <th className="px-4 py-3">Total Paid</th>
+                  <th className="px-4 py-3">Remaining</th>
+                  <th className="px-4 py-3">Due Accounts</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {monthlyCalendar.slice(0, 6).map((row) => (
+                  <tr key={row.month}>
+                    <td className="table-cell font-semibold text-slate-950 dark:text-white">{formatMonth(row.month)}</td>
+                    <td className="table-cell">{formatCurrency(row.totalDue)}</td>
+                    <td className="table-cell">{formatCurrency(row.totalPaid)}</td>
+                    <td className="table-cell font-semibold">{formatCurrency(row.remaining)}</td>
+                    <td className="table-cell">{row.dueAccounts}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
+        <div className="card p-5">
+          <h2 className="text-lg font-bold text-slate-950 dark:text-white">Payment Progress</h2>
+          <div className="mt-5 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Paid</span>
+              <span className="text-sm font-bold text-slate-950 dark:text-white">
+                {formatCurrency(paymentProgress.totalPaid)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Remaining</span>
+              <span className="text-sm font-bold text-slate-950 dark:text-white">
+                {formatCurrency(paymentProgress.remainingDebt)}
+              </span>
+            </div>
+            <ProgressBar value={paymentProgress.progress} />
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              {formatPercent(paymentProgress.progress)} of {formatCurrency(paymentProgress.totalScheduled)} scheduled debt paid
+            </p>
+          </div>
+        </div>
+
+        <div className="card overflow-hidden">
           <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
             <h2 className="text-lg font-bold text-slate-950 dark:text-white">Recent Activity</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Newest loan and payment actions first.</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Recent payment history, newest first.
+            </p>
           </div>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {activities.slice(0, 8).map((activity) => (
-              <div key={activity.id} className="px-5 py-4">
-                <p className="text-sm font-semibold text-slate-900 dark:text-white">{activity.description}</p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(activity.createdAt)}</p>
-              </div>
-            ))}
-          </div>
+          {recentPayments.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="table-head">
+                  <tr>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Lender</th>
+                    <th className="px-4 py-3">Loan ID</th>
+                    <th className="px-4 py-3">Amount Paid</th>
+                    <th className="px-4 py-3">Remaining</th>
+                    <th className="px-4 py-3">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {recentPayments.map(({ payment, loan }) => (
+                    <tr key={payment.id}>
+                      <td className="table-cell">{formatDate(payment.paymentDate)}</td>
+                      <td className="table-cell">{loan?.lender ?? "Unknown"}</td>
+                      <td className="table-cell font-semibold">{payment.loanId}</td>
+                      <td className="table-cell font-semibold">{formatCurrency(payment.amountPaid)}</td>
+                      <td className="table-cell">{formatCurrency(payment.remainingBalance)}</td>
+                      <td className="table-cell max-w-72 truncate">{payment.notes || "Auto-created"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {activities.slice(0, 5).map((activity) => (
+                <div key={activity.id} className="px-5 py-4">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">{activity.description}</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(activity.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>

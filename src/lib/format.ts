@@ -26,6 +26,11 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
+const monthFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "numeric",
+});
+
 export function formatCurrency(value: number, cents = false) {
   return cents ? currencyWithCents.format(value || 0) : currency.format(value || 0);
 }
@@ -55,7 +60,15 @@ export function formatDateTime(value?: string) {
   return dateTimeFormatter.format(new Date(value));
 }
 
+export function formatMonth(value?: string) {
+  if (!value) return "Not scheduled";
+  return monthFormatter.format(new Date(value));
+}
+
 export function statusLabel(status: string) {
+  if (status === "upcoming") return "Due Soon";
+  if (status === "completed") return "Paid";
+
   return status
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

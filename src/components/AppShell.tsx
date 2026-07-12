@@ -97,7 +97,7 @@ export function AppShell() {
           </div>
           <div>
             <p className="text-lg font-bold">Debt Tracker</p>
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Loan command center</p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Personal debt manager</p>
           </div>
         </div>
         <div className="mt-8">{nav}</div>
@@ -198,7 +198,7 @@ export function AppShell() {
                     estimatedInterestAmount: 420,
                     installments: 12,
                     startDate: new Date().toISOString().slice(0, 10),
-                    dueDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10),
+                    dueDate: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().slice(0, 10),
                     remainingBalance: total + 420,
                     paymentFrequency: "Monthly",
                     gracePeriod: 3,

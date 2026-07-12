@@ -7,8 +7,10 @@ import type {
   Loan,
   LoanFormValues,
   LoanInstallment,
+  MonthlyCalendarRow,
   NotificationItem,
   Payment,
+  PaymentProgressSummary,
 } from "../types";
 import { addDays, addMonths, daysBetween, isSameMonth, monthsBetween, todayDate, toDateInputValue } from "./date";
 
@@ -18,6 +20,13 @@ export function uid(prefix: string) {
 
 export function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
+}
+
+function numberOrFallback(value: number, fallback: number, allowZero = true) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  if (!allowZero && number <= 0) return fallback;
+  return number;
 }
 
 export function calculateLoanStatus(loan: Pick<Loan, "remainingBalance" | "dueDate">, nextUnpaidDue?: string): Loan["status"] {
@@ -57,7 +66,11 @@ export function deriveLoanFields(loan: Loan, installments: LoanInstallment[] = [
 export function createLoanFromForm(values: LoanFormValues): Loan {
   const now = new Date().toISOString();
   const totalLoanAmount = Number(values.originalAmount) + Number(values.estimatedInterestAmount || 0);
-  const remainingBalance = Number(values.remainingBalance || totalLoanAmount);
+  const remainingBalance = numberOrFallback(
+    values.remainingBalance,
+    totalLoanAmount,
+    values.status === "completed",
+  );
   const monthlyPayment = values.installments > 0 ? totalLoanAmount / Number(values.installments) : 0;
 
   return deriveLoanFields({
@@ -104,7 +117,7 @@ export function updateLoanFromForm(existing: Loan, values: LoanFormValues, insta
       monthlyPayment,
       startDate: values.startDate,
       dueDate: values.dueDate,
-      remainingBalance: Number(values.remainingBalance || totalLoanAmount),
+      remainingBalance: numberOrFallback(values.remainingBalance, totalLoanAmount),
       paymentFrequency: values.paymentFrequency,
       gracePeriod: Number(values.gracePeriod || 0),
       notes: values.notes,
@@ -118,23 +131,23 @@ export function updateLoanFromForm(existing: Loan, values: LoanFormValues, insta
 export function generateInstallments(loan: Loan): LoanInstallment[] {
   const principalPerInstallment = loan.originalAmount / Math.max(loan.installments, 1);
   const interestPerInstallment = loan.estimatedInterestAmount / Math.max(loan.installments, 1);
-  let remaining = loan.totalLoanAmount;
 
   return Array.from({ length: loan.installments }, (_, index) => {
     const expectedAmount =
-      index === loan.installments - 1 ? remaining : principalPerInstallment + interestPerInstallment;
-    remaining = Math.max(0, remaining - expectedAmount);
+      index === loan.installments - 1
+        ? loan.totalLoanAmount - (principalPerInstallment + interestPerInstallment) * index
+        : principalPerInstallment + interestPerInstallment;
 
     return {
       id: uid("SCH"),
       loanId: loan.id,
       installmentNo: index + 1,
-      dueDate: toDateInputValue(addMonths(new Date(loan.startDate), index + 1)),
+      dueDate: toDateInputValue(addMonths(new Date(loan.dueDate), index)),
       expectedAmount,
       principal: principalPerInstallment,
       interest: interestPerInstallment,
       status: "upcoming",
-      remainingBalance: remaining,
+      remainingBalance: expectedAmount,
     };
   });
 }
@@ -156,6 +169,9 @@ export function getDashboardMetrics(
     dueThisMonth: unpaid
       .filter((installment) => isSameMonth(new Date(installment.dueDate), now))
       .reduce((sum, installment) => sum + installment.expectedAmount, 0),
+    overdueAmount: unpaid
+      .filter((installment) => new Date(installment.dueDate) < now)
+      .reduce((sum, installment) => sum + installment.expectedAmount, 0),
     overallProgress: totalBorrowed > 0 ? clampPercent((totalPaid / totalBorrowed) * 100) : 0,
     dueWithin15: amountDueWithinDays(unpaid, 15),
     dueWithin30: amountDueWithinDays(unpaid, 30),
@@ -163,6 +179,55 @@ export function getDashboardMetrics(
       .filter(Boolean)
       .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0],
   };
+}
+
+export function getPaymentProgress(loans: Loan[], installments: LoanInstallment[]): PaymentProgressSummary {
+  const totalScheduled =
+    installments.reduce((sum, installment) => sum + installment.expectedAmount, 0) ||
+    loans.reduce((sum, loan) => sum + loan.totalLoanAmount, 0);
+  const totalPaid = loans.reduce((sum, loan) => sum + loan.amountPaid, 0);
+  const remainingDebt = loans
+    .filter((loan) => loan.status !== "completed")
+    .reduce((sum, loan) => sum + loan.remainingBalance, 0);
+
+  return {
+    totalScheduled,
+    totalPaid,
+    remainingDebt,
+    progress: totalScheduled > 0 ? clampPercent((totalPaid / totalScheduled) * 100) : 0,
+  };
+}
+
+export function getMonthlyCalendarRows(
+  installments: LoanInstallment[],
+  payments: Payment[],
+  months = 12,
+): MonthlyCalendarRow[] {
+  const now = todayDate();
+  const firstMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  return Array.from({ length: months }, (_, index) => {
+    const monthStart = addMonths(firstMonth, index);
+    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+    const inMonth = (value: string) => {
+      const date = new Date(value);
+      return date >= monthStart && date <= monthEnd;
+    };
+
+    const dueInstallments = installments.filter((installment) => inMonth(installment.dueDate));
+    const totalDue = dueInstallments.reduce((sum, installment) => sum + installment.expectedAmount, 0);
+    const totalPaid = payments
+      .filter((payment) => inMonth(payment.paymentDate))
+      .reduce((sum, payment) => sum + payment.amountPaid, 0);
+
+    return {
+      month: toDateInputValue(monthEnd),
+      totalDue,
+      totalPaid,
+      remaining: Math.max(0, totalDue - totalPaid),
+      dueAccounts: dueInstallments.filter((installment) => installment.expectedAmount > 0).length,
+    };
+  });
 }
 
 export function amountDueWithinDays(installments: LoanInstallment[], days: number) {
@@ -307,7 +372,7 @@ export function addPaymentToState(
       ...installment,
       status: installmentPaid ? "paid" : "partial",
       paidDate: paymentValues.paymentDate,
-      remainingBalance,
+      remainingBalance: Math.max(0, installment.expectedAmount - amountPaid),
     } satisfies LoanInstallment;
   });
 

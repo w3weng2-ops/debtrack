@@ -42,7 +42,7 @@ export function LoanForm({ loan, onSubmit, onCancel }: LoanFormProps) {
       estimatedInterestAmount: loan?.estimatedInterestAmount ?? 0,
       installments: loan?.installments ?? 12,
       startDate: loan?.startDate ?? toDateInputValue(todayDate()),
-      dueDate: loan?.dueDate ?? toDateInputValue(addMonths(todayDate(), 12)),
+      dueDate: loan?.dueDate ?? toDateInputValue(addMonths(todayDate(), 1)),
       remainingBalance: loan?.remainingBalance ?? 0,
       paymentFrequency: loan?.paymentFrequency ?? "Monthly",
       gracePeriod: loan?.gracePeriod ?? 0,
@@ -60,6 +60,10 @@ export function LoanForm({ loan, onSubmit, onCancel }: LoanFormProps) {
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+      <input type="hidden" {...register("loanType")} />
+      <input type="hidden" {...register("paymentFrequency")} />
+      <input type="hidden" {...register("gracePeriod", { valueAsNumber: true })} />
+
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Lender" error={errors.lender?.message}>
           <input className={controlClass} {...register("lender", { required: "Lender is required" })} />
@@ -67,24 +71,12 @@ export function LoanForm({ loan, onSubmit, onCancel }: LoanFormProps) {
         <Field label="Loan Name" error={errors.loanName?.message}>
           <input className={controlClass} {...register("loanName", { required: "Loan name is required" })} />
         </Field>
-        <Field label="Loan Type">
-          <select className={controlClass} {...register("loanType")}>
-            <option>Personal Loan</option>
-            <option>Auto Loan</option>
-            <option>Education Loan</option>
-            <option>Credit Card</option>
-            <option>Consumer Installment</option>
-            <option>Short-Term Loan</option>
-            <option>Other</option>
-          </select>
-        </Field>
         <Field label="Status">
           <select className={controlClass} {...register("status")}>
             <option value="active">Active</option>
-            <option value="upcoming">Upcoming</option>
+            <option value="upcoming">Due Soon</option>
             <option value="overdue">Overdue</option>
-            <option value="paused">Paused</option>
-            <option value="completed">Completed</option>
+            <option value="completed">Paid</option>
           </select>
         </Field>
         <Field label="Original Amount" error={errors.originalAmount?.message}>
@@ -119,17 +111,6 @@ export function LoanForm({ loan, onSubmit, onCancel }: LoanFormProps) {
         </Field>
         <Field label="Due Date">
           <input type="date" className={controlClass} {...register("dueDate", { required: true })} />
-        </Field>
-        <Field label="Payment Frequency">
-          <select className={controlClass} {...register("paymentFrequency")}>
-            <option>Weekly</option>
-            <option>Biweekly</option>
-            <option>Monthly</option>
-            <option>Quarterly</option>
-          </select>
-        </Field>
-        <Field label="Grace Period">
-          <input type="number" min="0" className={controlClass} {...register("gracePeriod", { valueAsNumber: true })} />
         </Field>
       </div>
 

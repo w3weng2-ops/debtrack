@@ -1,4 +1,13 @@
-import { BarChart3, Calculator, CircleDollarSign, Landmark, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  Landmark,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { useMemo } from "react";
 import {
   Area,
@@ -17,18 +26,29 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ProgressBar } from "../components/ProgressBar";
 import { PageSkeleton } from "../components/Skeleton";
 import { StatCard } from "../components/StatCard";
 import { useDebt } from "../context/DebtContext";
-import { getDebtByLender } from "../lib/debtCalculations";
-import { formatCompactCurrency, formatCurrency, formatNumber, formatPercent, statusLabel } from "../lib/format";
+import {
+  getDashboardMetrics,
+  getDebtByLender,
+  getMonthlyCalendarRows,
+  getPaymentProgress,
+} from "../lib/debtCalculations";
+import {
+  formatCompactCurrency,
+  formatCurrency,
+  formatMonth,
+  formatNumber,
+  formatPercent,
+  statusLabel,
+} from "../lib/format";
 import type { LoanInstallment, Payment } from "../types";
 
 const colors = ["#2563EB", "#22C55E", "#F59E0B", "#EF4444", "#64748B", "#14B8A6"];
 
 function monthLabel(value: string) {
-  return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(new Date(value));
+  return formatMonth(value);
 }
 
 function groupPaymentsByMonth(payments: Payment[]) {
@@ -39,20 +59,6 @@ function groupPaymentsByMonth(payments: Payment[]) {
   });
   return Array.from(groups.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, amount]) => ({ month: monthLabel(`${month}-01`), amount }));
-}
-
-function groupUpcomingByMonth(installments: LoanInstallment[]) {
-  const groups = new Map<string, number>();
-  installments
-    .filter((installment) => installment.status !== "paid")
-    .forEach((installment) => {
-      const key = installment.dueDate.slice(0, 7);
-      groups.set(key, (groups.get(key) ?? 0) + installment.expectedAmount);
-    });
-  return Array.from(groups.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(0, 8)
     .map(([month, amount]) => ({ month: monthLabel(`${month}-01`), amount }));
 }
 
@@ -72,6 +78,12 @@ function buildRemainingTrend(payments: Payment[], currentRemaining: number) {
   return trend.length > 0 ? trend : [{ date: "Current", remaining: currentRemaining }];
 }
 
+function getPaidAmount(installment: LoanInstallment) {
+  if (installment.status === "paid") return installment.expectedAmount;
+  if (installment.status === "partial") return Math.max(0, installment.expectedAmount - installment.remainingBalance);
+  return 0;
+}
+
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="card p-5">
@@ -82,121 +94,124 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 }
 
 export function AnalyticsPage() {
-  const { loans, installments, payments, loading } = useDebt();
+  const { loans, installments, payments, activities, loading } = useDebt();
 
-  const analytics = useMemo(() => {
-    const activeLoans = loans.filter((loan) => loan.status !== "completed");
-    const completedLoans = loans.filter((loan) => loan.status === "completed");
-    const overdueLoans = loans.filter((loan) => loan.status === "overdue");
-    const totalBorrowed = loans.reduce((sum, loan) => sum + loan.originalAmount, 0);
-    const totalInterest = loans.reduce((sum, loan) => sum + loan.estimatedInterestAmount, 0);
-    const totalPaid = loans.reduce((sum, loan) => sum + loan.amountPaid, 0);
-    const remainingDebt = activeLoans.reduce((sum, loan) => sum + loan.remainingBalance, 0);
-    const averageMonthlyPayment =
-      activeLoans.length > 0 ? activeLoans.reduce((sum, loan) => sum + loan.monthlyPayment, 0) / activeLoans.length : 0;
-    const averageInterestRate =
-      loans.length > 0 ? loans.reduce((sum, loan) => sum + loan.interestRate, 0) / loans.length : 0;
-    const highestLoan = loans.reduce((highest, loan) => (loan.originalAmount > highest.originalAmount ? loan : highest), loans[0]);
-    const lowestLoan = loans.reduce((lowest, loan) => (loan.originalAmount < lowest.originalAmount ? loan : lowest), loans[0]);
-    const paidInstallments = installments.filter((installment) => installment.status === "paid").length;
-    const completionRate = installments.length > 0 ? (paidInstallments / installments.length) * 100 : 0;
-
-    return {
-      activeLoans,
-      completedLoans,
-      overdueLoans,
-      totalBorrowed,
-      totalInterest,
-      totalPaid,
-      remainingDebt,
-      averageMonthlyPayment,
-      averageInterestRate,
-      highestLoan,
-      lowestLoan,
-      completionRate,
-    };
-  }, [installments, loans]);
-
+  const dashboardMetrics = useMemo(
+    () => getDashboardMetrics(loans, installments, activities),
+    [activities, installments, loans],
+  );
+  const paymentProgress = useMemo(() => getPaymentProgress(loans, installments), [installments, loans]);
+  const monthlyCalendar = useMemo(() => getMonthlyCalendarRows(installments, payments, 12), [installments, payments]);
   const debtByLender = useMemo(
     () => getDebtByLender(loans).map((summary) => ({ lender: summary.lender, remaining: summary.remainingBalance })),
     [loans],
   );
-  const statusDistribution = useMemo(() => {
+  const statusDebt = useMemo(() => {
     const groups = new Map<string, number>();
-    loans.forEach((loan) => groups.set(statusLabel(loan.status), (groups.get(statusLabel(loan.status)) ?? 0) + 1));
+    loans.forEach((loan) => {
+      const key = statusLabel(loan.status);
+      groups.set(key, (groups.get(key) ?? 0) + loan.remainingBalance);
+    });
     return Array.from(groups.entries()).map(([name, value]) => ({ name, value }));
   }, [loans]);
   const monthlyPayments = useMemo(() => groupPaymentsByMonth(payments), [payments]);
-  const remainingTrend = useMemo(() => buildRemainingTrend(payments, analytics.remainingDebt), [analytics.remainingDebt, payments]);
-  const upcomingDue = useMemo(() => groupUpcomingByMonth(installments), [installments]);
-  const principalInterest = useMemo(
-    () => [
-      { name: "Principal Paid", value: payments.reduce((sum, payment) => sum + payment.principalPaid, 0) },
-      { name: "Interest Paid", value: payments.reduce((sum, payment) => sum + payment.interestPaid, 0) },
-    ],
-    [payments],
+  const remainingTrend = useMemo(
+    () => buildRemainingTrend(payments, paymentProgress.remainingDebt),
+    [paymentProgress.remainingDebt, payments],
   );
+  const paymentProgressChart = useMemo(
+    () => [
+      { name: "Paid", value: paymentProgress.totalPaid },
+      { name: "Remaining", value: paymentProgress.remainingDebt },
+    ],
+    [paymentProgress.remainingDebt, paymentProgress.totalPaid],
+  );
+  const monthlyChartRows = useMemo(
+    () =>
+      monthlyCalendar.map((row) => ({
+        month: formatMonth(row.month),
+        totalDue: row.totalDue,
+        totalPaid: row.totalPaid,
+        remaining: row.remaining,
+      })),
+    [monthlyCalendar],
+  );
+  const auditChecks = useMemo(() => {
+    const checks = [
+      {
+        check: "Schedule rows missing due date",
+        actual: installments.filter((installment) => installment.expectedAmount > 0 && !installment.dueDate).length,
+        expected: 0,
+      },
+      {
+        check: "Paid amount exceeds due amount",
+        actual: installments.filter((installment) => getPaidAmount(installment) > installment.expectedAmount).length,
+        expected: 0,
+      },
+      {
+        check: "Progress percent out of bounds",
+        actual: loans.filter((loan) => loan.progress < 0 || loan.progress > 100).length,
+        expected: 0,
+      },
+      {
+        check: "Blank status on loan rows",
+        actual: loans.filter((loan) => !loan.status).length,
+        expected: 0,
+      },
+      {
+        check: "Payment history rows created",
+        actual: payments.length,
+        expected: payments.length,
+      },
+    ];
+
+    return checks.map((item) => ({
+      ...item,
+      difference: Math.abs(item.actual - item.expected),
+      status: item.actual === item.expected ? "OK" : "Review",
+    }));
+  }, [installments, loans, payments.length]);
 
   if (loading) return <PageSkeleton />;
+
+  const statusDebtChart = statusDebt.some((item) => item.value > 0)
+    ? statusDebt
+    : [{ name: "No remaining debt", value: 1 }];
+  const paymentChart = paymentProgressChart.some((item) => item.value > 0)
+    ? paymentProgressChart
+    : [{ name: "No payments yet", value: 1 }];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-3xl">Analytics</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-          Visualize repayment velocity, lender concentration, status health, and upcoming obligations.
+          Chart-ready views for lender exposure, monthly payment load, payment progress, status debt, and tracker checks.
         </p>
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Borrowed" value={formatCurrency(analytics.totalBorrowed)} icon={CircleDollarSign} />
-        <StatCard label="Total Interest" value={formatCurrency(analytics.totalInterest)} icon={Calculator} tone="amber" />
-        <StatCard label="Total Paid" value={formatCurrency(analytics.totalPaid)} icon={TrendingUp} tone="green" />
-        <StatCard label="Remaining Debt" value={formatCurrency(analytics.remainingDebt)} icon={TrendingDown} tone="red" />
-        <StatCard label="Average Monthly Payment" value={formatCurrency(analytics.averageMonthlyPayment)} icon={BarChart3} />
-        <StatCard label="Average Interest Rate" value={`${analytics.averageInterestRate.toFixed(2)}%`} icon={Calculator} tone="amber" />
-        <StatCard label="Active Loans" value={formatNumber(analytics.activeLoans.length)} icon={Landmark} />
-        <StatCard label="Completed Loans" value={formatNumber(analytics.completedLoans.length)} icon={TrendingUp} tone="green" />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="card p-5">
-          <p className="muted-label">Highest Loan</p>
-          <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
-            {analytics.highestLoan?.loanName ?? "None"}
-          </p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {formatCurrency(analytics.highestLoan?.originalAmount ?? 0)}
-          </p>
-        </div>
-        <div className="card p-5">
-          <p className="muted-label">Lowest Loan</p>
-          <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">{analytics.lowestLoan?.loanName ?? "None"}</p>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {formatCurrency(analytics.lowestLoan?.originalAmount ?? 0)}
-          </p>
-        </div>
-        <div className="card p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="muted-label">Payment Completion Rate</p>
-              <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">{formatPercent(analytics.completionRate)}</p>
-            </div>
-            <p className="text-sm font-semibold text-red-600">{analytics.overdueLoans.length} overdue</p>
-          </div>
-          <ProgressBar value={analytics.completionRate} className="mt-4" />
-        </div>
+        <StatCard label="Total Scheduled" value={formatCurrency(paymentProgress.totalScheduled)} icon={CircleDollarSign} />
+        <StatCard label="Total Paid" value={formatCurrency(paymentProgress.totalPaid)} icon={TrendingUp} tone="green" />
+        <StatCard label="Remaining Debt" value={formatCurrency(paymentProgress.remainingDebt)} icon={TrendingDown} tone="red" />
+        <StatCard label="Progress" value={formatPercent(paymentProgress.progress)} icon={CheckCircle2} tone="green" />
+        <StatCard label="Due This Month" value={formatCurrency(dashboardMetrics.dueThisMonth)} icon={BarChart3} tone="amber" />
+        <StatCard label="Overdue" value={formatCurrency(dashboardMetrics.overdueAmount)} icon={AlertTriangle} tone="red" />
+        <StatCard label="Due in 15 Days" value={formatCurrency(dashboardMetrics.dueWithin15)} icon={Clock3} tone="amber" />
+        <StatCard label="Due in 30 Days" value={formatCurrency(dashboardMetrics.dueWithin30)} icon={Landmark} tone="blue" />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <ChartCard title="Monthly Debt Payments">
+        <ChartCard title="Monthly Calendar">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyPayments}>
+            <BarChart data={monthlyChartRows}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-              <Bar dataKey="amount" fill="#2563EB" radius={[8, 8, 0, 0]} />
+              <Legend />
+              <Bar dataKey="totalDue" name="Total Due" fill="#2563EB" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="remaining" name="Remaining" fill="#F59E0B" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -225,25 +240,11 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Loan Status Distribution">
+        <ChartCard title="Payment Progress">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={statusDistribution} dataKey="value" nameKey="name" innerRadius={64} outerRadius={100} paddingAngle={3}>
-                {statusDistribution.map((entry, index) => (
-                  <Cell key={entry.name} fill={colors[index % colors.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Interest vs Principal Paid">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={principalInterest} dataKey="value" nameKey="name" outerRadius={100} label>
-                {principalInterest.map((entry, index) => (
+              <Pie data={paymentChart} dataKey="value" nameKey="name" innerRadius={64} outerRadius={100} paddingAngle={3}>
+                {paymentChart.map((entry, index) => (
                   <Cell key={entry.name} fill={colors[index % colors.length]} />
                 ))}
               </Pie>
@@ -253,17 +254,97 @@ export function AnalyticsPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Upcoming Due Amounts">
+        <ChartCard title="Status Debt">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={upcomingDue}>
+            <PieChart>
+              <Pie data={statusDebtChart} dataKey="value" nameKey="name" outerRadius={100} label>
+                {statusDebtChart.map((entry, index) => (
+                  <Cell key={entry.name} fill={colors[index % colors.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Monthly Payments Recorded">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={monthlyPayments}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="month" />
               <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-              <Line type="monotone" dataKey="amount" stroke="#F59E0B" strokeWidth={3} dot={{ r: 5 }} />
+              <Line type="monotone" dataKey="amount" stroke="#22C55E" strokeWidth={3} dot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+            <h2 className="text-lg font-bold text-slate-950 dark:text-white">Tracker Metrics</h2>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {[
+              ["Total Scheduled", formatCurrency(paymentProgress.totalScheduled)],
+              ["Total Paid", formatCurrency(paymentProgress.totalPaid)],
+              ["Remaining Debt", formatCurrency(paymentProgress.remainingDebt)],
+              ["Progress %", formatPercent(paymentProgress.progress)],
+              ["Due This Month", formatCurrency(dashboardMetrics.dueThisMonth)],
+              ["Overdue", formatCurrency(dashboardMetrics.overdueAmount)],
+              ["Due in 15 Days", formatCurrency(dashboardMetrics.dueWithin15)],
+              ["Due in 30 Days", formatCurrency(dashboardMetrics.dueWithin30)],
+              ["Active Loans", formatNumber(dashboardMetrics.activeLoans)],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between gap-4 px-5 py-3">
+                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{label}</span>
+                <span className="text-sm font-bold text-slate-950 dark:text-white">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+            <h2 className="text-lg font-bold text-slate-950 dark:text-white">Audit Checks</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+              <thead className="table-head">
+                <tr>
+                  <th className="px-4 py-3">Check</th>
+                  <th className="px-4 py-3">Actual</th>
+                  <th className="px-4 py-3">Expected</th>
+                  <th className="px-4 py-3">Difference</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {auditChecks.map((check) => (
+                  <tr key={check.check}>
+                    <td className="table-cell font-semibold text-slate-950 dark:text-white">{check.check}</td>
+                    <td className="table-cell">{check.actual}</td>
+                    <td className="table-cell">{check.expected}</td>
+                    <td className="table-cell">{check.difference}</td>
+                    <td className="table-cell">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${
+                          check.status === "OK"
+                            ? "bg-green-50 text-green-700 ring-green-200 dark:bg-green-950 dark:text-green-200 dark:ring-green-800"
+                            : "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-800"
+                        }`}
+                      >
+                        {check.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </div>
   );

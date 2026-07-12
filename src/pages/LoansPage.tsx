@@ -51,13 +51,11 @@ export function LoansPage() {
   const [amountMin, setAmountMin] = useState("");
   const [amountMax, setAmountMax] = useState("");
   const [interestMax, setInterestMax] = useState("");
-  const [frequency, setFrequency] = useState("all");
   const [page, setPage] = useState(1);
   const [formLoan, setFormLoan] = useState<Loan | undefined>();
   const [formOpen, setFormOpen] = useState(false);
 
   const lenders = useMemo(() => Array.from(new Set(loans.map((loan) => loan.lender))).sort(), [loans]);
-  const frequencies = useMemo(() => Array.from(new Set(loans.map((loan) => loan.paymentFrequency))).sort(), [loans]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -77,13 +75,12 @@ export function LoansPage() {
         (!dateEnd || due <= new Date(dateEnd)) &&
         (minAmount === undefined || loan.remainingBalance >= minAmount) &&
         (maxAmount === undefined || loan.remainingBalance <= maxAmount) &&
-        (maxInterest === undefined || loan.interestRate <= maxInterest) &&
-        (frequency === "all" || loan.paymentFrequency === frequency)
+        (maxInterest === undefined || loan.interestRate <= maxInterest)
       );
     });
 
     return sortLoans(matches, sortKey);
-  }, [amountMax, amountMin, dateEnd, dateStart, frequency, interestMax, lender, loans, query, sortKey, status]);
+  }, [amountMax, amountMin, dateEnd, dateStart, interestMax, lender, loans, query, sortKey, status]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -135,7 +132,7 @@ export function LoansPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-3xl">Loan Database</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Search, filter, sort, and maintain every active, upcoming, overdue, paused, and completed loan.
+            Master active-loan registry with independent start dates, recurring due dates, balances, status, and notes.
           </p>
         </div>
         <Button type="button" onClick={openCreate}>
@@ -165,10 +162,9 @@ export function LoansPage() {
           <select className={controlClass} value={status} onChange={(event) => setStatus(event.target.value as LoanStatus | "all")}>
             <option value="all">All statuses</option>
             <option value="active">Active</option>
-            <option value="completed">Completed</option>
+            <option value="completed">Paid</option>
             <option value="overdue">Overdue</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="paused">Paused</option>
+            <option value="upcoming">Due Soon</option>
           </select>
           <select className={controlClass} value={lender} onChange={(event) => setLender(event.target.value)}>
             <option value="all">All lenders</option>
@@ -181,12 +177,6 @@ export function LoansPage() {
           <input className={controlClass} value={amountMin} onChange={(event) => setAmountMin(event.target.value)} placeholder="Min balance" type="number" />
           <input className={controlClass} value={amountMax} onChange={(event) => setAmountMax(event.target.value)} placeholder="Max balance" type="number" />
           <input className={controlClass} value={interestMax} onChange={(event) => setInterestMax(event.target.value)} placeholder="Max interest %" type="number" />
-          <select className={controlClass} value={frequency} onChange={(event) => setFrequency(event.target.value)}>
-            <option value="all">All installment types</option>
-            {frequencies.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
           <select className={controlClass} value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
             <option value="dueDate">Sort by due date</option>
             <option value="startDate">Sort by start date</option>
@@ -207,92 +197,101 @@ export function LoansPage() {
             </p>
           </div>
         </div>
-        {paginated.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-[1180px] divide-y divide-slate-200 dark:divide-slate-800">
-              <thead className="table-head">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1320px] divide-y divide-slate-200 dark:divide-slate-800">
+            <thead className="table-head">
+              <tr>
+                <th className="px-4 py-3">Loan ID</th>
+                <th className="px-4 py-3">Lender</th>
+                <th className="px-4 py-3">Loan Name</th>
+                <th className="px-4 py-3">Original Amount</th>
+                <th className="px-4 py-3">Interest Rate</th>
+                <th className="px-4 py-3">Installments</th>
+                <th className="px-4 py-3">Monthly Payment</th>
+                <th className="px-4 py-3">Start Date</th>
+                <th className="px-4 py-3">Due Date</th>
+                <th className="px-4 py-3">Remaining Balance</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Notes</th>
+                <th className="px-4 py-3">Est. Interest Rate</th>
+                <th className="px-4 py-3">Next Unpaid Due</th>
+                <th className="px-4 py-3">Progress</th>
+                <th className="px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {paginated.length > 0 ? (
+                paginated.map((loan) => {
+                  const estimatedRate =
+                    loan.originalAmount > 0 ? (loan.estimatedInterestAmount / loan.originalAmount) * 100 : loan.interestRate;
+
+                  return (
+                    <tr key={loan.id} className={cx(loan.status === "overdue" ? "bg-red-50/50 dark:bg-red-950/20" : "")}>
+                      <td className="table-cell font-semibold">{loan.id}</td>
+                      <td className="table-cell">{loan.lender}</td>
+                      <td className="table-cell font-semibold text-slate-950 dark:text-white">{loan.loanName}</td>
+                      <td className="table-cell">{formatCurrency(loan.originalAmount)}</td>
+                      <td className="table-cell">{loan.interestRate.toFixed(2)}%</td>
+                      <td className="table-cell">{loan.installments}</td>
+                      <td className="table-cell">{formatCurrency(loan.monthlyPayment)}</td>
+                      <td className="table-cell">{formatDate(loan.startDate)}</td>
+                      <td className="table-cell">{formatDate(loan.dueDate)}</td>
+                      <td className="table-cell font-semibold">{formatCurrency(loan.remainingBalance)}</td>
+                      <td className="table-cell">
+                        <StatusBadge status={loan.status} />
+                      </td>
+                      <td className="table-cell max-w-56 truncate">{loan.notes || "None"}</td>
+                      <td className="table-cell">{estimatedRate.toFixed(2)}%</td>
+                      <td className="table-cell">{formatDate(loan.nextUnpaidDue)}</td>
+                      <td className="table-cell min-w-44">
+                        <div className="flex items-center gap-3">
+                          <ProgressBar value={loan.progress} />
+                          <span className="text-xs font-semibold">{formatPercent(loan.progress)}</span>
+                        </div>
+                      </td>
+                      <td className="table-cell">
+                        <div className="flex items-center gap-1">
+                          <Link className="focus-ring rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950" to={`/loans/${loan.id}`} aria-label={`View ${loan.loanName}`}>
+                            <Eye className="h-4 w-4" />
+                          </Link>
+                          <button
+                            className="focus-ring rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                            onClick={() => {
+                              setFormLoan(loan);
+                              setFormOpen(true);
+                            }}
+                            aria-label={`Edit ${loan.loanName}`}
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                          <button
+                            className="focus-ring rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                            onClick={() => void handleDelete(loan)}
+                            aria-label={`Delete ${loan.loanName}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
                 <tr>
-                  <th className="px-4 py-3">Loan ID</th>
-                  <th className="px-4 py-3">Lender</th>
-                  <th className="px-4 py-3">Loan Name</th>
-                  <th className="px-4 py-3">Original Amount</th>
-                  <th className="px-4 py-3">Interest Rate</th>
-                  <th className="px-4 py-3">Installments</th>
-                  <th className="px-4 py-3">Monthly Payment</th>
-                  <th className="px-4 py-3">Start Date</th>
-                  <th className="px-4 py-3">Due Date</th>
-                  <th className="px-4 py-3">Remaining Balance</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Est. Interest</th>
-                  <th className="px-4 py-3">Next Unpaid Due</th>
-                  <th className="px-4 py-3">Progress</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <td colSpan={16} className="px-4 py-10">
+                    <EmptyState
+                      icon={WalletCards}
+                      title="No loans match these filters"
+                      message="Adjust the search and filters, or add a new loan to start tracking repayment."
+                      actionLabel="Add Loan"
+                      onAction={openCreate}
+                    />
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {paginated.map((loan) => (
-                  <tr key={loan.id} className={cx(loan.status === "overdue" ? "bg-red-50/50 dark:bg-red-950/20" : "")}>
-                    <td className="table-cell font-semibold">{loan.id}</td>
-                    <td className="table-cell">{loan.lender}</td>
-                    <td className="table-cell font-semibold text-slate-950 dark:text-white">{loan.loanName}</td>
-                    <td className="table-cell">{formatCurrency(loan.originalAmount)}</td>
-                    <td className="table-cell">{loan.interestRate.toFixed(2)}%</td>
-                    <td className="table-cell">{loan.installments}</td>
-                    <td className="table-cell">{formatCurrency(loan.monthlyPayment)}</td>
-                    <td className="table-cell">{formatDate(loan.startDate)}</td>
-                    <td className="table-cell">{formatDate(loan.dueDate)}</td>
-                    <td className="table-cell font-semibold">{formatCurrency(loan.remainingBalance)}</td>
-                    <td className="table-cell">
-                      <StatusBadge status={loan.status} />
-                    </td>
-                    <td className="table-cell">{formatCurrency(loan.estimatedInterestAmount)}</td>
-                    <td className="table-cell">{formatDate(loan.nextUnpaidDue)}</td>
-                    <td className="table-cell min-w-44">
-                      <div className="flex items-center gap-3">
-                        <ProgressBar value={loan.progress} />
-                        <span className="text-xs font-semibold">{formatPercent(loan.progress)}</span>
-                      </div>
-                    </td>
-                    <td className="table-cell">
-                      <div className="flex items-center gap-1">
-                        <Link className="focus-ring rounded-lg p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950" to={`/loans/${loan.id}`} aria-label={`View ${loan.loanName}`}>
-                          <Eye className="h-4 w-4" />
-                        </Link>
-                        <button
-                          className="focus-ring rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                          onClick={() => {
-                            setFormLoan(loan);
-                            setFormOpen(true);
-                          }}
-                          aria-label={`Edit ${loan.loanName}`}
-                        >
-                          <Edit3 className="h-4 w-4" />
-                        </button>
-                        <button
-                          className="focus-ring rounded-lg p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                          onClick={() => void handleDelete(loan)}
-                          aria-label={`Delete ${loan.loanName}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-6">
-            <EmptyState
-              icon={WalletCards}
-              title="No loans match these filters"
-              message="Adjust the search and filters, or add a new loan to start tracking repayment."
-              actionLabel="Add Loan"
-              onAction={openCreate}
-            />
-          </div>
-        )}
+              )}
+            </tbody>
+          </table>
+        </div>
         <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Page {page} of {pageCount}

@@ -12,7 +12,7 @@ A modern debt tracker for personal loan management, built with React, Vite, Tail
 - Loan Database with search, filters, sorting, pagination, create, edit, delete, and detail navigation
 - Loan Details with payment schedule, payment history, add payment, mark completed, and full field inventory
 - Completed Loans page
-- Analytics with charts for monthly payments, remaining debt trend, debt by lender, status distribution, completion rate, interest vs principal, and upcoming due amounts
+- Analytics with workbook-style monthly calendar, payment progress, debt by lender, status debt, tracker metrics, and audit checks
 - Dark mode and responsive layout
 
 ## Local Setup

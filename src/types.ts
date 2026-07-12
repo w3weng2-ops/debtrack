@@ -124,6 +124,7 @@ export interface DashboardMetrics {
   activeLoans: number;
   remainingDebt: number;
   dueThisMonth: number;
+  overdueAmount: number;
   overallProgress: number;
   dueWithin15: number;
   dueWithin30: number;
@@ -153,4 +154,19 @@ export interface CompletedLoanSummary {
   totalPaid: number;
   completionDate: string;
   loanDuration: string;
+}
+
+export interface MonthlyCalendarRow {
+  month: string;
+  totalDue: number;
+  totalPaid: number;
+  remaining: number;
+  dueAccounts: number;
+}
+
+export interface PaymentProgressSummary {
+  totalScheduled: number;
+  totalPaid: number;
+  remainingDebt: number;
+  progress: number;
 }
