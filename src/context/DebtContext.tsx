@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { demoState } from "../data/demoData";
 import {
   addPaymentToState,
   createLoanFromForm,
@@ -22,15 +21,24 @@ interface DebtContextValue extends DebtState {
 }
 
 const DebtContext = createContext<DebtContextValue | undefined>(undefined);
-const storageKey = "debt-tracker-state-v1";
 
-function readStoredState() {
-  try {
-    const stored = window.localStorage.getItem(storageKey);
-    return stored ? (JSON.parse(stored) as DebtState) : demoState;
-  } catch {
-    return demoState;
+const emptyDebtState: DebtState = {
+  loans: [],
+  installments: [],
+  payments: [],
+  activities: [],
+};
+
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
   }
+
+  return supabase;
+}
+
+function throwIfError(error: { message: string } | null, action: string) {
+  if (error) throw new Error(`${action}: ${error.message}`);
 }
 
 function loanFromRow(row: Record<string, unknown>): Loan {
@@ -133,12 +141,13 @@ function installmentToRow(installment: LoanInstallment) {
 
 export function DebtProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [state, setState] = useState<DebtState>(() => readStoredState());
+  const [state, setState] = useState<DebtState>(emptyDebtState);
   const [loading, setLoading] = useState(Boolean(isSupabaseConfigured));
   const [error, setError] = useState<string>();
 
   const loadSupabaseData = useCallback(async () => {
     if (!supabase || !user) {
+      setState(emptyDebtState);
       setLoading(false);
       return;
     }
@@ -157,7 +166,7 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
       loansResult.error ?? installmentsResult.error ?? paymentsResult.error ?? activitiesResult.error;
     if (firstError) {
       setError(firstError.message);
-      setState(demoState);
+      setState(emptyDebtState);
       setLoading(false);
       return;
     }
@@ -195,14 +204,10 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadSupabaseData]);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured) {
-      window.localStorage.setItem(storageKey, JSON.stringify(state));
-    }
-  }, [state]);
-
   const createLoan = useCallback(
     async (values: LoanFormValues) => {
+      if (!user) throw new Error("You must be logged in to create a loan.");
+      const client = requireSupabase();
       const baseLoan = createLoanFromForm(values);
       const generatedInstallments = generateInstallments(baseLoan);
       const loan = deriveLoanFields(baseLoan, generatedInstallments);
@@ -214,27 +219,30 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
       };
 
+      const loanResult = await client.from("loans").insert({ ...loanToRow(loan), user_id: user.id });
+      throwIfError(loanResult.error, "Create loan failed");
+
+      const installmentsResult = await client
+        .from("loan_installments")
+        .insert(generatedInstallments.map((item) => ({ ...installmentToRow(item), user_id: user.id })));
+      throwIfError(installmentsResult.error, "Create payment schedule failed");
+
+      const activityResult = await client.from("activity_logs").insert({
+        id: activity.id,
+        user_id: user.id,
+        loan_id: loan.id,
+        type: activity.type,
+        description: activity.description,
+        created_at: activity.createdAt,
+      });
+      throwIfError(activityResult.error, "Create activity log failed");
+
       setState((current) => ({
         loans: [loan, ...current.loans],
         installments: [...generatedInstallments, ...current.installments],
         payments: current.payments,
         activities: [activity, ...current.activities],
       }));
-
-      if (supabase && user) {
-        await supabase.from("loans").insert({ ...loanToRow(loan), user_id: user.id });
-        await supabase
-          .from("loan_installments")
-          .insert(generatedInstallments.map((item) => ({ ...installmentToRow(item), user_id: user.id })));
-        await supabase.from("activity_logs").insert({
-          id: activity.id,
-          user_id: user.id,
-          loan_id: loan.id,
-          type: activity.type,
-          description: activity.description,
-          created_at: activity.createdAt,
-        });
-      }
 
       return loan;
     },
@@ -243,49 +251,49 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
 
   const updateLoan = useCallback(
     async (loanId: string, values: LoanFormValues) => {
-      let updatedLoan: Loan | undefined;
-      let activity: ActivityLog | undefined;
+      if (!user) throw new Error("You must be logged in to update a loan.");
+      const client = requireSupabase();
+      const loan = state.loans.find((item) => item.id === loanId);
+      if (!loan) throw new Error("Loan not found.");
 
-      setState((current) => {
-        const loan = current.loans.find((item) => item.id === loanId);
-        if (!loan) return current;
+      const updatedLoan = updateLoanFromForm(loan, values, state.installments);
+      const activity: ActivityLog = {
+        id: uid("ACT"),
+        type: values.notes !== loan.notes ? "notes_updated" : "loan_updated",
+        loanId,
+        description:
+          values.notes !== loan.notes
+            ? `${updatedLoan.loanName} notes were updated.`
+            : `${updatedLoan.loanName} was updated.`,
+        createdAt: new Date().toISOString(),
+      };
 
-        updatedLoan = updateLoanFromForm(loan, values, current.installments);
-        activity = {
-          id: uid("ACT"),
-          type: values.notes !== loan.notes ? "notes_updated" : "loan_updated",
-          loanId,
-          description:
-            values.notes !== loan.notes
-              ? `${updatedLoan.loanName} notes were updated.`
-              : `${updatedLoan.loanName} was updated.`,
-          createdAt: new Date().toISOString(),
-        };
+      const loanResult = await client.from("loans").update(loanToRow(updatedLoan)).eq("id", loanId);
+      throwIfError(loanResult.error, "Update loan failed");
 
-        return {
-          ...current,
-          loans: current.loans.map((item) => (item.id === loanId ? updatedLoan! : item)),
-          activities: [activity, ...current.activities],
-        };
+      const activityResult = await client.from("activity_logs").insert({
+        id: activity.id,
+        user_id: user.id,
+        loan_id: loanId,
+        type: activity.type,
+        description: activity.description,
+        created_at: activity.createdAt,
       });
+      throwIfError(activityResult.error, "Create activity log failed");
 
-      if (supabase && user && updatedLoan && activity) {
-        await supabase.from("loans").update(loanToRow(updatedLoan)).eq("id", loanId);
-        await supabase.from("activity_logs").insert({
-          id: activity.id,
-          user_id: user.id,
-          loan_id: loanId,
-          type: activity.type,
-          description: activity.description,
-          created_at: activity.createdAt,
-        });
-      }
+      setState((current) => ({
+        ...current,
+        loans: current.loans.map((item) => (item.id === loanId ? updatedLoan : item)),
+        activities: [activity, ...current.activities],
+      }));
     },
-    [user],
+    [state.installments, state.loans, user],
   );
 
   const deleteLoan = useCallback(
     async (loanId: string) => {
+      if (!user) throw new Error("You must be logged in to delete a loan.");
+      const client = requireSupabase();
       const loan = state.loans.find((item) => item.id === loanId);
       const activity: ActivityLog = {
         id: uid("ACT"),
@@ -295,30 +303,33 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
       };
 
+      const activityResult = await client.from("activity_logs").insert({
+        id: activity.id,
+        user_id: user.id,
+        loan_id: null,
+        type: activity.type,
+        description: activity.description,
+        created_at: activity.createdAt,
+      });
+      throwIfError(activityResult.error, "Create activity log failed");
+
+      const deleteResult = await client.from("loans").delete().eq("id", loanId);
+      throwIfError(deleteResult.error, "Delete loan failed");
+
       setState((current) => ({
         loans: current.loans.filter((item) => item.id !== loanId),
         installments: current.installments.filter((item) => item.loanId !== loanId),
         payments: current.payments.filter((item) => item.loanId !== loanId),
         activities: [activity, ...current.activities],
       }));
-
-      if (supabase && user) {
-        await supabase.from("loans").delete().eq("id", loanId);
-        await supabase.from("activity_logs").insert({
-          id: activity.id,
-          user_id: user.id,
-          loan_id: loanId,
-          type: activity.type,
-          description: activity.description,
-          created_at: activity.createdAt,
-        });
-      }
     },
     [state.loans, user],
   );
 
   const addPayment = useCallback(
     async (loanId: string, values: PaymentFormValues) => {
+      if (!user) throw new Error("You must be logged in to add a payment.");
+      const client = requireSupabase();
       const nextState = addPaymentToState(
         state.loans,
         state.installments,
@@ -332,45 +343,59 @@ export function DebtProvider({ children }: { children: React.ReactNode }) {
         },
       );
 
-      setState(nextState);
+      const changedLoan = nextState.loans.find((loan) => loan.id === loanId);
+      const changedInstallment = nextState.installments.find(
+        (installment) =>
+          installment.loanId === loanId &&
+          installment.paidDate &&
+          state.installments.some((previous) => previous.id === installment.id && previous.paidDate !== installment.paidDate),
+      );
+      const newPayment = nextState.payments[0];
+      const newActivity = nextState.activities[0];
 
-      if (supabase && user) {
-        const changedLoan = nextState.loans.find((loan) => loan.id === loanId);
-        const changedInstallment = nextState.installments.find(
-          (installment, index) =>
-            installment.loanId === loanId && installment !== state.installments[index] && installment.paidDate,
-        );
-        const newPayment = nextState.payments[0];
-        const newActivity = nextState.activities[0];
-
-        if (changedLoan) await supabase.from("loans").update(loanToRow(changedLoan)).eq("id", loanId);
-        if (changedInstallment) {
-          await supabase.from("loan_installments").update(installmentToRow(changedInstallment)).eq("id", changedInstallment.id);
-        }
-        await supabase.from("payments").insert({
-          id: newPayment.id,
-          user_id: user.id,
-          loan_id: loanId,
-          payment_date: newPayment.paymentDate,
-          amount_paid: newPayment.amountPaid,
-          principal_paid: newPayment.principalPaid,
-          interest_paid: newPayment.interestPaid,
-          remaining_balance: newPayment.remainingBalance,
-          reference_number: newPayment.referenceNumber,
-          payment_method: newPayment.paymentMethod,
-          recorded_by: newPayment.recordedBy,
-          notes: newPayment.notes,
-          created_at: newPayment.createdAt,
-        });
-        await supabase.from("activity_logs").insert({
-          id: newActivity.id,
-          user_id: user.id,
-          loan_id: loanId,
-          type: newActivity.type,
-          description: newActivity.description,
-          created_at: newActivity.createdAt,
-        });
+      if (!changedLoan || !newPayment || !newActivity) {
+        throw new Error("Payment could not be prepared.");
       }
+
+      const loanResult = await client.from("loans").update(loanToRow(changedLoan)).eq("id", loanId);
+      throwIfError(loanResult.error, "Update loan balance failed");
+
+      if (changedInstallment) {
+        const installmentResult = await client
+          .from("loan_installments")
+          .update(installmentToRow(changedInstallment))
+          .eq("id", changedInstallment.id);
+        throwIfError(installmentResult.error, "Update installment failed");
+      }
+
+      const paymentResult = await client.from("payments").insert({
+        id: newPayment.id,
+        user_id: user.id,
+        loan_id: loanId,
+        payment_date: newPayment.paymentDate,
+        amount_paid: newPayment.amountPaid,
+        principal_paid: newPayment.principalPaid,
+        interest_paid: newPayment.interestPaid,
+        remaining_balance: newPayment.remainingBalance,
+        reference_number: newPayment.referenceNumber,
+        payment_method: newPayment.paymentMethod,
+        recorded_by: newPayment.recordedBy,
+        notes: newPayment.notes,
+        created_at: newPayment.createdAt,
+      });
+      throwIfError(paymentResult.error, "Create payment failed");
+
+      const activityResult = await client.from("activity_logs").insert({
+        id: newActivity.id,
+        user_id: user.id,
+        loan_id: loanId,
+        type: newActivity.type,
+        description: newActivity.description,
+        created_at: newActivity.createdAt,
+      });
+      throwIfError(activityResult.error, "Create activity log failed");
+
+      setState(nextState);
     },
     [state, user],
   );

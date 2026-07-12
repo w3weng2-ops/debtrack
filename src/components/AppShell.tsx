@@ -19,6 +19,7 @@ import { useDebt } from "../context/DebtContext";
 import { cx } from "../lib/classes";
 import { formatCurrency } from "../lib/format";
 import { Button } from "./Button";
+import { useToast } from "../context/ToastContext";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -43,8 +44,9 @@ function useDarkMode() {
 }
 
 export function AppShell() {
-  const { user, signOut, isDemoMode } = useAuth();
+  const { user, signOut } = useAuth();
   const { loans, error, createLoan } = useDebt();
+  const { notify } = useToast();
   const [isDark, setIsDark] = useDarkMode();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -102,7 +104,7 @@ export function AppShell() {
         <div className="absolute bottom-5 left-4 right-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
           <p className="text-sm font-semibold text-slate-900 dark:text-white">{user?.name || user?.email}</p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {isDemoMode ? "Demo workspace" : "Supabase workspace"}
+            Supabase workspace
           </p>
         </div>
       </aside>
@@ -186,23 +188,32 @@ export function AppShell() {
               className="hidden sm:inline-flex"
               onClick={async () => {
                 const total = 4000;
-                const loan = await createLoan({
-                  lender: "New Lender",
-                  loanName: "New Loan",
-                  loanType: "Personal Loan",
-                  originalAmount: total,
-                  interestRate: 7.5,
-                  estimatedInterestAmount: 420,
-                  installments: 12,
-                  startDate: new Date().toISOString().slice(0, 10),
-                  dueDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10),
-                  remainingBalance: total + 420,
-                  paymentFrequency: "Monthly",
-                  gracePeriod: 3,
-                  notes: "Created from quick add. Edit details from the loan page.",
-                  status: "active",
-                });
-                navigate(`/loans/${loan.id}`);
+                try {
+                  const loan = await createLoan({
+                    lender: "New Lender",
+                    loanName: "New Loan",
+                    loanType: "Personal Loan",
+                    originalAmount: total,
+                    interestRate: 7.5,
+                    estimatedInterestAmount: 420,
+                    installments: 12,
+                    startDate: new Date().toISOString().slice(0, 10),
+                    dueDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().slice(0, 10),
+                    remainingBalance: total + 420,
+                    paymentFrequency: "Monthly",
+                    gracePeriod: 3,
+                    notes: "Created from quick add. Edit details from the loan page.",
+                    status: "active",
+                  });
+                  navigate(`/loans/${loan.id}`);
+                  notify({ severity: "success", title: "Loan created", message: "New Loan was added." });
+                } catch (error) {
+                  notify({
+                    severity: "danger",
+                    title: "Quick add failed",
+                    message: error instanceof Error ? error.message : "Please try again.",
+                  });
+                }
               }}
             >
               <Plus className="h-4 w-4" />
@@ -217,11 +228,9 @@ export function AppShell() {
               <LogOut className="h-5 w-5" />
             </button>
           </div>
-          {isDemoMode || error ? (
-            <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
-              {error
-                ? `Supabase data could not be loaded: ${error}. Demo data is shown.`
-                : "Demo mode is active because Supabase environment variables are not configured."}
+          {error ? (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
+              Supabase data could not be loaded: {error}
             </div>
           ) : null}
         </header>

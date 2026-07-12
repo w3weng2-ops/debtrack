@@ -5,23 +5,15 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase";
 interface AuthContextValue {
   user: AppUser | null;
   loading: boolean;
-  isDemoMode: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name?: string) => Promise<void>;
-  continueDemo: () => void;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const demoUser: AppUser = {
-  id: "demo-user",
-  email: "demo@debttracker.local",
-  name: "Demo User",
-};
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AppUser | null>(() => (isSupabaseConfigured ? null : demoUser));
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(Boolean(isSupabaseConfigured));
 
   useEffect(() => {
@@ -71,8 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) {
-      setUser({ ...demoUser, email });
-      return;
+      throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -81,8 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string, name?: string) => {
     if (!supabase) {
-      setUser({ id: "demo-user", email, name: name || "Demo User" });
-      return;
+      throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
     }
 
     const { error } = await supabase.auth.signUp({
@@ -93,10 +83,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
     });
     if (error) throw error;
-  }, []);
-
-  const continueDemo = useCallback(() => {
-    setUser(demoUser);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -110,13 +96,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
-      isDemoMode: !isSupabaseConfigured,
       signIn,
       signUp,
-      continueDemo,
       signOut,
     }),
-    [continueDemo, loading, signIn, signOut, signUp, user],
+    [loading, signIn, signOut, signUp, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

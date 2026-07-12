@@ -1,12 +1,12 @@
-const currency = new Intl.NumberFormat("en-US", {
+const currency = new Intl.NumberFormat("en-PH", {
   style: "currency",
-  currency: "USD",
+  currency: "PHP",
   maximumFractionDigits: 0,
 });
 
-const currencyWithCents = new Intl.NumberFormat("en-US", {
+const currencyWithCents = new Intl.NumberFormat("en-PH", {
   style: "currency",
-  currency: "USD",
+  currency: "PHP",
   maximumFractionDigits: 2,
 });
 
@@ -28,6 +28,13 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 
 export function formatCurrency(value: number, cents = false) {
   return cents ? currencyWithCents.format(value || 0) : currency.format(value || 0);
+}
+
+export function formatCompactCurrency(value: number) {
+  const amount = Number(value || 0);
+  if (Math.abs(amount) >= 1_000_000) return `PHP ${(amount / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(amount) >= 1_000) return `PHP ${(amount / 1_000).toFixed(0)}K`;
+  return `PHP ${Math.round(amount)}`;
 }
 
 export function formatNumber(value: number) {

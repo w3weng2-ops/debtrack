@@ -92,28 +92,60 @@ export function LoanDetailsPage() {
   }
 
   const handleUpdate = async (values: LoanFormValues) => {
-    await updateLoan(loan.id, values);
-    notify({ severity: "success", title: "Loan updated", message: `${values.loanName} was saved.` });
-    setEditOpen(false);
+    try {
+      await updateLoan(loan.id, values);
+      notify({ severity: "success", title: "Loan updated", message: `${values.loanName} was saved.` });
+      setEditOpen(false);
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: "Loan update failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   const handlePayment = async (values: PaymentFormValues) => {
-    await addPayment(loan.id, values);
-    notify({ severity: "success", title: "Payment recorded", message: `${loan.loanName} balance was updated.` });
-    setPaymentOpen(false);
+    try {
+      await addPayment(loan.id, values);
+      notify({ severity: "success", title: "Payment recorded", message: `${loan.loanName} balance was updated.` });
+      setPaymentOpen(false);
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: "Payment failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   const handleComplete = async () => {
-    await updateLoan(loan.id, detailFormValues(loan, { remainingBalance: 0, status: "completed" }));
-    notify({ severity: "success", title: "Loan completed", message: `${loan.loanName} moved to completed loans.` });
+    try {
+      await updateLoan(loan.id, detailFormValues(loan, { remainingBalance: 0, status: "completed" }));
+      notify({ severity: "success", title: "Loan completed", message: `${loan.loanName} moved to completed loans.` });
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: "Completion failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   const handleDelete = async () => {
     const confirmed = window.confirm(`Delete ${loan.loanName}? This removes the loan, schedule, and payments.`);
     if (!confirmed) return;
-    await deleteLoan(loan.id);
-    notify({ severity: "success", title: "Loan deleted", message: `${loan.loanName} was removed.` });
-    navigate("/loans");
+    try {
+      await deleteLoan(loan.id);
+      notify({ severity: "success", title: "Loan deleted", message: `${loan.loanName} was removed.` });
+      navigate("/loans");
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   return (

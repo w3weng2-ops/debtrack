@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "../components/Button";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import { isSupabaseConfigured } from "../lib/supabase";
 
 interface AuthFormValues {
   name?: string;
@@ -16,7 +17,7 @@ const controlClass =
 
 export function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const { signIn, signUp, continueDemo, isDemoMode } = useAuth();
+  const { signIn, signUp } = useAuth();
   const { notify } = useToast();
   const {
     register,
@@ -127,20 +128,17 @@ export function AuthPage() {
                 <span className="mt-1 block text-xs font-medium text-red-600">Password must be at least 6 characters.</span>
               ) : null}
             </label>
-            <Button type="submit" className="w-full" isLoading={isSubmitting}>
+            <Button type="submit" className="w-full" isLoading={isSubmitting} disabled={!isSupabaseConfigured}>
               {mode === "login" ? "Login" : "Register"}
             </Button>
           </form>
 
-          {isDemoMode ? (
-            <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950">
-              <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">Supabase is not configured in this workspace.</p>
-              <p className="mt-1 text-sm text-blue-800 dark:text-blue-200">
-                Continue in demo mode to explore the full app with local sample data.
+          {!isSupabaseConfigured ? (
+            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+              <p className="text-sm font-semibold text-red-900 dark:text-red-100">Supabase is not configured.</p>
+              <p className="mt-1 text-sm text-red-800 dark:text-red-200">
+                Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before using the app.
               </p>
-              <Button type="button" variant="secondary" className="mt-4 w-full" onClick={continueDemo}>
-                Continue Demo
-              </Button>
             </div>
           ) : null}
         </section>

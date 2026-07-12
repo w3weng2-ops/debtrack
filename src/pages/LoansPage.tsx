@@ -96,21 +96,37 @@ export function LoansPage() {
   };
 
   const handleSubmit = async (values: LoanFormValues) => {
-    if (formLoan) {
-      await updateLoan(formLoan.id, values);
-      notify({ severity: "success", title: "Loan updated", message: `${values.loanName} was saved.` });
-    } else {
-      await createLoan(values);
-      notify({ severity: "success", title: "Loan created", message: `${values.loanName} was added.` });
+    try {
+      if (formLoan) {
+        await updateLoan(formLoan.id, values);
+        notify({ severity: "success", title: "Loan updated", message: `${values.loanName} was saved.` });
+      } else {
+        await createLoan(values);
+        notify({ severity: "success", title: "Loan created", message: `${values.loanName} was added.` });
+      }
+      setFormOpen(false);
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: formLoan ? "Loan update failed" : "Loan creation failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
     }
-    setFormOpen(false);
   };
 
   const handleDelete = async (loan: Loan) => {
     const confirmed = window.confirm(`Delete ${loan.loanName}? This removes the loan, schedule, and payments.`);
     if (!confirmed) return;
-    await deleteLoan(loan.id);
-    notify({ severity: "success", title: "Loan deleted", message: `${loan.loanName} was removed.` });
+    try {
+      await deleteLoan(loan.id);
+      notify({ severity: "success", title: "Loan deleted", message: `${loan.loanName} was removed.` });
+    } catch (error) {
+      notify({
+        severity: "danger",
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   return (

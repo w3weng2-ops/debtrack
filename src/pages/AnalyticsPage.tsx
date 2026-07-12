@@ -22,7 +22,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import { StatCard } from "../components/StatCard";
 import { useDebt } from "../context/DebtContext";
 import { getDebtByLender } from "../lib/debtCalculations";
-import { formatCurrency, formatNumber, formatPercent, statusLabel } from "../lib/format";
+import { formatCompactCurrency, formatCurrency, formatNumber, formatPercent, statusLabel } from "../lib/format";
 import type { LoanInstallment, Payment } from "../types";
 
 const colors = ["#2563EB", "#22C55E", "#F59E0B", "#EF4444", "#64748B", "#14B8A6"];
@@ -194,7 +194,7 @@ export function AnalyticsPage() {
             <BarChart data={monthlyPayments}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => `$${Number(value) / 1000}k`} />
+              <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               <Bar dataKey="amount" fill="#2563EB" radius={[8, 8, 0, 0]} />
             </BarChart>
@@ -206,7 +206,7 @@ export function AnalyticsPage() {
             <AreaChart data={remainingTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="date" />
-              <YAxis tickFormatter={(value) => `$${Number(value) / 1000}k`} />
+              <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               <Area type="monotone" dataKey="remaining" stroke="#2563EB" fill="#DBEAFE" strokeWidth={3} />
             </AreaChart>
@@ -217,7 +217,7 @@ export function AnalyticsPage() {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={debtByLender} layout="vertical" margin={{ left: 24 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis type="number" tickFormatter={(value) => `$${Number(value) / 1000}k`} />
+              <XAxis type="number" tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <YAxis type="category" dataKey="lender" width={120} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               <Bar dataKey="remaining" fill="#2563EB" radius={[0, 8, 8, 0]} />
@@ -258,7 +258,7 @@ export function AnalyticsPage() {
             <LineChart data={upcomingDue}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
               <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => `$${Number(value) / 1000}k`} />
+              <YAxis tickFormatter={(value) => formatCompactCurrency(Number(value))} />
               <Tooltip formatter={(value) => formatCurrency(Number(value))} />
               <Line type="monotone" dataKey="amount" stroke="#F59E0B" strokeWidth={3} dot={{ r: 5 }} />
             </LineChart>
